@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/rand"
 	"net/http"
 	"strconv"
 	"sync"
@@ -27,14 +28,16 @@ func taskHandler(w http.ResponseWriter, r *http.Request) {
 	wg.Add(3)
 
 	// fork the work in parallel
-	go createTask(tasks, "sourceA", &wg)
-	go createTask(tasks, "sourceB", &wg)
-	go createTask(tasks, "sourceC", &wg)
+	go createTask("sourceA", tasks, &wg)
+	go createTask("sourceB", tasks, &wg)
+	go createTask("sourceC", tasks, &wg)
 
 	// cleanup goroutine
 	go func() {
+		start := time.Now()
 		wg.Wait()
-		fmt.Println("All produced: let's close")
+		elapsed := time.Since(start)
+		fmt.Printf("All produced: let's close, done in %s", elapsed)
 		close(tasks)
 	}()
 
@@ -42,23 +45,26 @@ func taskHandler(w http.ResponseWriter, r *http.Request) {
 	for t := range tasks {
 		err := encoder.Encode(t)
 		if err != nil {
-			fmt.Println("Something wrong happened")
+			fmt.Printf("Something wrong happened")
 		}
 	}
-	//w.WriteHeader(http.StatusOK)
+
+	w.Header().Set("Content-Type", "application/json")
 }
 
-func createTask(tasks chan task, source string, wg *sync.WaitGroup) {
+func createTask(source string, tasks chan task, wg *sync.WaitGroup) {
 	defer wg.Done()
-	for i := 1; i <= 10; i++ {
-		time.Sleep(100 * time.Millisecond)
+	taskDuration := time.Duration(rand.Intn(10)+10) * time.Millisecond
+	nbTasks := rand.Intn(50) + 50
+	for i := 1; i <= nbTasks; i++ {
+		time.Sleep(taskDuration)
 		id := strconv.Itoa(i)
 		task := task{
 			ID:          source + "_" + id,
 			Name:        "Name" + "_" + id,
 			Description: "Does't matter",
 		}
-		fmt.Println("Produced Task: " + task.ID)
+		fmt.Printf("%s Produced Task: %s in %s \n", source, task.ID, taskDuration)
 		tasks <- task
 	}
 }
