@@ -13,14 +13,14 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/pkg/profile"
+	//"github.com/pkg/profile"
 )
 
 const port = 8080
 const randTask = 50
 
 func main() {
-	defer profile.Start().Stop()
+	//defer profile.Start().Stop()
 
 	f, err := os.OpenFile("gomodu.log", os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
 	if err != nil {
@@ -45,6 +45,7 @@ func taskHandler(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	source := vars["source"]
 
+	// create the tasks
 	taskDuration := time.Duration(rand.Intn(10)+10) * time.Millisecond
 	nbTasks := rand.Intn(randTask) + randTask
 	tasks := make([]task, nbTasks)
@@ -59,17 +60,17 @@ func taskHandler(w http.ResponseWriter, r *http.Request) {
 		log.Printf("%s Produced Task: %s in %s \n", source, task.ID, taskDuration)
 		tasks[i] = task
 	}
-	createSlice := time.Since(start)
+
+	// encode tasks to JSON
 	err := json.NewEncoder(w).Encode(tasks)
 	if err != nil {
 		log.Println("error:", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
-	//w.WriteHeader(http.StatusOK)
 
 	total := time.Since(start)
-	log.Printf("%s finished to produced %d tasks in %s/%s \n", source, nbTasks, createSlice, total)
+	log.Printf("%s finished to produced %d tasks in %s \n", source, nbTasks, total)
 }
 
 func aggregateHandler(w http.ResponseWriter, r *http.Request) {
@@ -100,14 +101,23 @@ func aggregateHandler(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	// this create the JSON in parallel
+	w.Write([]byte("["))
+	var count = 0
+	comma := []byte(",")
 	for t := range tasks {
+		if count > 0 {
+			w.Write(comma)
+		}
 		err := encoder.Encode(t)
 		if err != nil {
 			log.Println("error:", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
+
+		count = count + 1
 	}
+	w.Write([]byte("]"))
 
 	elapsed := time.Since(start)
 	log.Println("Finished to aggregated in", elapsed)
@@ -115,18 +125,20 @@ func aggregateHandler(w http.ResponseWriter, r *http.Request) {
 
 func readTask(source string, tasks chan task, wg *sync.WaitGroup) {
 	defer wg.Done()
+
+	// call the REST endpoint
 	res, err := http.Get("http://localhost:" + strconv.Itoa(port) + "/task/" + source)
 	if err != nil {
 		fmt.Println("error:", err)
 		return
 	}
-
 	body, readErr := ioutil.ReadAll(res.Body)
 	if readErr != nil {
 		fmt.Println("error:", err)
 		return
 	}
 
+	// transform the result into JSON
 	var newTasks []task
 	jsonErr := json.Unmarshal(body, &newTasks)
 	if jsonErr != nil {
@@ -134,6 +146,7 @@ func readTask(source string, tasks chan task, wg *sync.WaitGroup) {
 		return
 	}
 
+	// send JSON to the Task channel
 	for _, task := range newTasks {
 		tasks <- task
 	}
